@@ -4,5 +4,4 @@ pip-log.txt
 *.pkl
 .ipynb_checkpoints/
 *.pdf
-docs/build
 docs/source/_templates/
