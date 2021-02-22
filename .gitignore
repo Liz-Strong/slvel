@@ -1,0 +1,6 @@
+__pycache__/
+pip-log.txt
+*.npy
+*.pkl
+.ipynb_checkpoints/
+*.pdf
