@@ -2,10 +2,9 @@
 
 *structured light velocimetry*
 
-*slvel* 
 When particles pass through beams of light, the light they scatter can be studied to deduce their kinematic histories. This principle forms the backbone of flow velocimetry techniques like laser Doppler velocimetry (LDV). Here, we extend this concept to accommodate complicated illumination patterns and expected particle movements. In particular, we simulate particle trajectories through structured light. We then identify and parameterize these simulations. A machine learning regression algorithm trained on simulated data predicts the angular velocities of the scattering partiles.
 
-More documentation is [here](https://slvel.readthedocs.io/)
+More documentation is [here](https://slvel.readthedocs.io/).
 
 ### Package details:
 - `slvel/` contains the Python modules for `slvel`. 
