@@ -1,7 +1,6 @@
 numpy
 matplotlib
 pandas
-random
 pathlib
 seaborn
 tensorflow
