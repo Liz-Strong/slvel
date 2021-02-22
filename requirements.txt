@@ -1,0 +1,10 @@
+numpy
+matplotlib
+pandas
+random
+pathlib
+seaborn
+tensorflow
+IPython
+scipy
+time
