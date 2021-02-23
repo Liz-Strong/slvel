@@ -21,7 +21,7 @@ This code accompanies a paper that is curretnly in press called *Angular velocim
 
 ### How to Cite:
 
-Strong, E.F **slvel* **2021**, [www.github.com/Liz-Strong/slvel] (www.github.com/Liz-Strong/slvel).
+Strong, E.F *slvel* **2021**, [www.github.com/Liz-Strong/slvel] (www.github.com/Liz-Strong/slvel).
 
 ### License:
 
