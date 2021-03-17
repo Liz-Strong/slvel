@@ -17,11 +17,13 @@ More documentation is [here](https://slvel.readthedocs.io/).
 
 *slvel* was written by Elizabeth Strong. 
 
-This code accompanies a paper that is curretnly in press called *Angular velocimetry for fluid flows: an optical sensor using structured light and machine learning* by Elizabeth F. Strong, Alex Q. Anderson, Michael P. Brenner, Brendan M. Heffernan, Nazanin Hoghooghi, Juliet T. Gopinath, and Greg B. Rieker.
+This code accompanies the paper  *Angular velocimetry for fluid flows: an optical sensor using structured light and machine learning* by Elizabeth F. Strong, Alex Q. Anderson, Michael P. Brenner, Brendan M. Heffernan, Nazanin Hoghooghi, Juliet T. Gopinath, and Greg B. Rieker, Optics Express 29 9960-9980 (2021). [`DOI:10.1364/OE.417210`](https://doi.org/10.1364/OE.417210)
 
 ### How to Cite:
 
 Strong, E.F *slvel* **2021**, [www.github.com/Liz-Strong/slvel] (www.github.com/Liz-Strong/slvel).
+
+E. F. Strong, A. Q. Anderson, M. P. Brenner, B. M. Heffernan, N. Hoghooghi, J. T. Gopinath, and G. B. Rieker, "Angular velocimetry for fluid flows: an optical sensor using structured light and machine learning," Opt. Express 29, 9960-9980 (2021).
 
 ### License:
 
