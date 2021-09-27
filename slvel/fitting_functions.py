@@ -5,6 +5,8 @@ from scipy.optimize import curve_fit
 from scipy.optimize import minimize
 from scipy.signal import find_peaks
 from scipy.stats import pearsonr as pearsonr
+from scipy.special import erf as erf
+
 """Fitting functions for multi-Gaussian fitting.
 """
 def fit_wrapper(x,*args):
@@ -97,7 +99,6 @@ def bound_maker(amplitude_bounds,translational_offset_bounds,stddev_bounds,verti
     upper = [amplitude_bounds[1]]*number_gaussians + [translational_offset_bounds[1]]*number_gaussians + [stddev_bounds[1]]*number_gaussians + [vertical_offset_bounds[1]]       
     bounds = (lower, upper)
     return bounds
-
 
 def bound_maker_subsequent(t, y, y_fit, popt, num_new_gaussians, amplitude_bounds, stddev_bounds, vertical_offset_bounds, new_translational_offset, noise_avg):
     """
@@ -259,7 +260,6 @@ def seed_initial_offsets_peaks(y, noise, rect_area=500, prominence_knockdown_fac
     #plt.plot(peaks, xc_r[15]/100*np.ones(len(peaks)), 'kx')
     #print(peaks)
     #plt.legend()
-    
     return peaks
 
 def initial_seed(t, y, noise,  max_num_gaussians=8, rect_area=500):
@@ -503,6 +503,7 @@ def seed_later_offsets_peaks(y, noise, rect_area=100, prominence_knockdown_facto
 
 def subsequent_seeding(t, y, y_fit, popt, number_gaussians, noise_avg):
     """
+    Make the seeds for fits after the first fit.
     
     Args:
         t (array): times corresponding to y
@@ -700,3 +701,649 @@ def fitting_function(selxn, t, y, noise_avg, noise_thresh, ang_vel, orbit_radius
     
     return
 
+
+
+
+"""
+**********************
+Fitting functions for erf-rect-erfs (use these when features within the illuminating beam have top hat intensity profiles)
+**********************
+"""
+
+
+
+
+def error_function(x, x0, w):
+    """
+    Error function with equation y=0.5*(1+erf(np.sqrt(2)*(x-x0)/w))
+    
+    Args:
+        x: array of independent variable (x) values
+        x0: error function offset
+        w: error function width
+    
+    Retunrs:
+        y: computed error function
+    """
+    y = 0.5*(1+erf(np.sqrt(2)*(x-x0)/w))
+    return y
+
+def error_function_complimentary(x, x0, w):
+    """
+    Complimentary error function with equation y=0.5*(1-erf(np.sqrt(2)*(x-x0)/w))
+    
+    Args:
+        x: data x values
+        x0: error function offset
+        w: error function width
+    
+    Returns:
+        y: computed error function
+    """
+    y = 0.5*(1-erf(np.sqrt(2)*(x-x0)/w))
+    return y
+
+def fit_wrapper_erfrecterf(x,*args):
+    """ 
+    This wrapper sets up the variables for the fit function.
+    It allows for a variable numbers of erf-rect-erfs to be fitted.
+    Calls erf_rect_fit_function
+    
+    Args:
+        x (array):  x is independent variable x, such that y=f(x). 
+        args: variable length argument list. args[0:n_erfs] are the amplitudes of the erf-rect-erfs to be fitted. Each erf-rect-erf feature has an erf and a complimentary erf. args[n_erfs:2*n_erfs] are the horizontal offsets of the erf to be fitted. args[2*n_erfs:3*n_erfs] are the widths of the erf to be fitted. args[3*n_erfs:4*n_erfs] and  args[4*n_erfs:5*n_erfs] are the horizontal offsets and widths of the complimentary erf to be fitted. args[-1] is the vertical offset parameter
+            
+    Returns 
+        erf_rect_fit_function(x,a,mu0,sigma0,mu1,sigma1,vertical_offset)
+    """
+    n_erfs = (len(args)-1)//5 # number of erf-rect-erf features that we're fitting
+    
+    a = args[0:n_erfs]
+    mu0 = args[n_erfs:2*n_erfs]
+    sigma0 = args[2*n_erfs:3*n_erfs]
+    mu1 = args[3*n_erfs:4*n_erfs]
+    sigma1 = args[4*n_erfs:5*n_erfs]
+    vertical_offset = args[-1]
+    return erf_rect_fit_function(x, a, mu0, sigma0, mu1, sigma1, vertical_offset)
+
+def erf_rect_fit_function(x,a,mu0,sigma0,mu1,sigma1,vertical_offset):
+    """ 
+    Returns a function that is comprised of erf-rect-erf features. Each feature has a top-hat profile 
+    generated as the sum of an error function at one time and a complimentary error function at a later time. 
+    
+    Args:
+        x (array): independent variable, such that y=f(x). 
+        a (list): initial guesses for the amplitudes of the erf-rect-erfs
+        mu0 (list): initial guesses for the translational offsets of the erfs
+        sigma0 (list): initial guesses for standard deviations of erfs
+        mu1 (list): initial guesses for the translational offsets of the complimentary erfs
+        sigma1 (list): initial guesses for standard deviations of the complimentary erfs
+        vertical_offset (list): initial guess for vertical offset h
+    
+    Returns:
+        fit (array): a function which consists of the sum of multiple gaussians and a vertical offset
+    
+    
+        Returns a function that is comprised of an offset h and the 
+    sum of gaussians with variable amplitudes, offsets, and standard 
+    deviations (widths)
+    
+    Args:
+        x (array): independent variable, such that y=f(x). 
+        h (list): initial guesses for the amplitudes of the gaussians
+        mu (list): initial guesses for the translational offsets of the gaussians
+        sigma (list): initial guesses for standard deviations of gaussians
+        vertical_offset (list): initial guess for vertical offset h
+    
+    Returns:
+        fit (array): a function which consists of the sum of multiple gaussians and a vertical offset
+    """
+    # initialize fi function & add the vertical offset to the fit function
+    fit = np.zeros(len(x))+vertical_offset
+    
+    # iterate through each erf-rect-erf and add it to the fit function
+    for amp, offset0, std0, offset1, std1 in zip(a, mu0, sigma0, mu1, sigma1):
+        fit += amp*(error_function(x, offset0, std0) + error_function_complimentary(x, offset1, std1) -1 )
+     
+    return fit
+
+def initial_guess_erfrecterf(initial_amplitude,initial_translational_offset0,initial_stddev0,initial_translational_offset1,initial_stddev1,initial_vertical_offset):
+     """
+    Create array with amplitude, standard deviation, translational offsets, and vertical offset to be used in the curve fit
+    
+    Args:
+        initial_amplitude (array): guess for the initial values of the amplitudes of the erf-rect-erf
+        initial_translational_offset0 (array): guess for the initial values of the translational offsets of the erf
+        initial_stddev0 (array): guess for the initial values of the standard deviations of the erf
+        initial_translational_offset1 (array): guess for the initial values of the translational offsets of the complimentary erf
+        initial_stddev1 (array): guess for the initial values of the standard deviations of the complimentary erf
+        initial_vertical_offset (float): guess for the initial values of the vertical offset 
+    
+    Returns:
+        p0 (array): lists the initial_amplitude, initial_translational_offset of the erf, initial_stddev of the erf, initial_translational_offset of the complimentary erf, initial_stddev of the complimentary erf, initial_vertical_offset in the correct format for the curve fit.
+    """    
+    p0 = [i for i in initial_amplitude]\
+         + [i for i in initial_translational_offset0]\
+         + [i for i in initial_stddev0]\
+         + [i for i in initial_translational_offset1]\
+         + [i for i in initial_stddev1]\
+         + [initial_vertical_offset]
+    
+    return p0
+
+def bound_maker_erfrecterf(amplitude_bounds,translational_offset_bounds,stddev_bounds,vertical_offset_bounds,number_erfs):
+    """
+    Create tuple with lower and upper bounds to be used in the curve fit
+    
+    Args:
+        amplitude_bounds (tuple): bounds on the amplitudes of the gaussians
+        translational_offset_bounds (tuple): bounds on the translational offsets of the gaussians
+        stddev_bounds (tuple): bounds on the standard deviations of the gaussians
+        vertical_offset_bounds (tuple): bounds on the vertical offset of the gaussians
+        number_erfs (int): the number of erf-rect-erf features in the fit
+    
+    Returns:
+        bounds (tuple): lists the bounds on the parameters used in the erf-rect-erf fits
+    """
+    lower = [amplitude_bounds[0]]*number_erfs + [translational_offset_bounds[0]]*number_erfs + [stddev_bounds[0]]*number_erfs + [translational_offset_bounds[0]]*number_erfs + [stddev_bounds[0]]*number_erfs + [vertical_offset_bounds[0]]
+    upper = [amplitude_bounds[1]]*number_erfs + [translational_offset_bounds[1]]*number_erfs + [stddev_bounds[1]]*number_erfs + [translational_offset_bounds[1]]*number_erfs + [stddev_bounds[1]]*number_erfs + [vertical_offset_bounds[1]]       
+    bounds = (lower, upper)
+    return bounds
+
+def bound_maker_subsequent_erfrecterf(t, y, y_fit, popt, num_new_erfs, amplitude_bounds, sigma0_bounds, sigma1_bounds, vertical_offset_bounds, new_mu0, new_mu1):
+    """
+    Makes the bounds vector for fits after the first. Takes into account the previous fitted values
+    
+    Args:
+        t (array): time grid of burst
+        y (array): burst
+        y_fit (array): previous fit to the burst
+        popt (arrapy): the results from the multi gaussian curve fit of the previous fit
+        num_new_erfs (int): the number of gaussians to be added to the new fit
+        amplitude_bounds (array): bounds on the amplitudes of the gaussians
+        sigma0_bounds (array): bounds on the standard deviations of the erf
+        sigma1_bounds (array): bounds on the standard deviations of the complimentary erf
+        vertical_offset_bounds (array): bounds on the vertical offset
+        new_mu0 (array): new value for the translational position of the  erf 
+        new_mu1 (array): new value for the translational position of the complimentary erf
+    
+    Returns:
+        bounds (tuple): lists the bounds on the parameters used in the erf-rect-erf fits
+    """
+    amplitudes = popt[0:num_erfs_old]
+    mu0 = popt[num_erfs_old:2*num_erfs_old]
+    sigma0 = popt[2*num_erfs_old:3*num_erfs_old]
+    mu1 = popt[3*num_erfs_old:4*num_erfs_old]
+    sigma1 = popt[4*num_erfs_old:5*num_erfs_old]
+    vertical_offset = popt[-1]
+    
+    lower_amp = np.append(amplitudes-np.abs(amplitudes)*.2, [0]*num_new_erfs)
+    upper_amp = np.append(amplitudes+np.abs(amplitudes)*.4, [1.2*(np.max(y)-noise_avg)]*num_new_erfs)
+
+        
+    # limit the movement of the previously fitted erf-rect-erfs.
+    lower_mu0 = np.append(mu0*.8, [0]*num_new_erfs)
+    upper_mu0 = np.append(mu0*1.2, [np.max(t)]*num_new_erfs)
+    lower_mu1 = np.append(mu1*.8, [0]*num_new_erfs)
+    upper_mu1 = np.append(mu1*1.2, [np.max(t)]*num_new_erfs)
+    if num_new_erfs == 1:
+        lower_mu0 = np.append(mu0*.8, [new_mu0[-1]*.5])
+        upper_mu0 = np.append(mu0*1.2, [new_mu0[-1]*1.5])
+        lower_mu1 = np.append(mu1*.8, [new_mu1[-1]*.5])
+        upper_mu1 = np.append(mu1*1.2, [new_mu1[-1]*1.5])
+    lower_mu0[lower_mu0<0] = 0
+    lower_mu1[lower_mu1<0] = 0
+    upper_mu0[upper_mu0>np.max(t)] = .9*np.max(t)
+    upper_mu1[upper_mu1>np.max(t)] = .9*np.max(t)
+    
+    
+    lower_sigma0 = np.append([sigma0_bounds[0]]*num_erfs_old, [sigma0_bounds[0]]*num_new_erfs)
+    lower_sigma1 = np.append([sigma1_bounds[0]]*num_erfs_old, [sigma1_bounds[0]]*num_new_erfs)
+    upper_sigma0 = np.append([sigma0_bounds[1]]*num_erfs_old, [sigma0_bounds[1]]*num_new_erfs)
+    upper_sigma1 = np.append([sigma1_bounds[1]]*num_erfs_old, [sigma1_bounds[1]]*num_new_erfs)
+
+    # make into array
+    lower = np.concatenate((lower_amp, lower_mu0, lower_sigma0, lower_mu1, lower_sigma1, [vertical_offset_bounds[0]]))
+    upper = np.concatenate((upper_amp, upper_mu0, upper_sigma0, upper_mu1, upper_sigma1, [vertical_offset_bounds[1]]))
+    
+    bounds = (lower, upper)
+    return bounds
+
+def find_edges(y, trigger_height):
+    """
+    Simple zero-crossing algorithm to locate the rising and falling edges of a signal. If the signal is noisy around the location of the threshold, then multiple rising and falling edges may be detected where only one should be detected. If this happens, try smoothing the signal beforehand or selecting only a single of the set of falsely identified edge positions.
+    
+    Args:
+        y (array): signal of interest
+        trigger_height (float): the height at which a rising or falling edge is detected
+        
+    Returns:
+        potential_rising_edges (list): list of rising edges at which to seed erf-rect-erfs
+        potential_falling_edges (list): list of falling edges at which to seed erf-rect-erfs
+    """
+    potential_falling_edge, potential_rising_edge  = [], []
+    for num, (i,j) in enumerate(zip(y[:-1], y[1:])):
+        if (i>trigger_height) and (j<trigger_height):
+            potential_falling_edge.append(num)
+        if (i< trigger_height) and (j>trigger_height):
+            potential_rising_edge.append(num)
+    return potential_rising_edge, potential_falling_edge
+
+def seed_initial_offsets_edges(y, noise_level):
+    """
+    Seed the starts and the edges 
+    
+    Args:
+        y (array): signal of interest
+        noise_level (float): the mean noise level of the signal. The threshold for finding the edges is based on this value
+        
+    Returns:
+        rising_edges (list): list of rising edges at which to seed erf-rect-erfs
+        falling_edges (list): list of falling edges at which to seed erf-rect-erfs
+    """
+    
+    threshold = noise_level*2
+    rising_edges, falling_edges = find_edges(y, threshold)
+    
+    
+    return rising_edges, falling_edges
+
+def seed_initial_offsets_edges_smoothed(y, noise):
+    """
+    Seed the starts and the edges 
+    
+    Inputs:
+        y (array): signal of interest
+        noise (float): the mean noise level of the signal. The threshold for finding the edges is based on this value
+        
+    Returns:
+        rising_edges (list): list of rising edges at which to seed erf-rect-erfs
+        falling_edges (list): list of falling edges at which to seed erf-rect-erfs
+    """
+    
+    # find the major peaks
+    threshold = np.max(y)*.25
+    
+    # Find edges of smoothed signal 
+    area = 4000
+    length = len(y)//50
+    width = len(y)
+    r = rect_generator(length,width,area)
+    xc_r = signal.correlate(y,r)[length//2:-length//2]
+    normalized_xc_r = xc_r/np.max(xc_r)*np.max(y)
+    
+    rising_edges, falling_edges = find_edges(normalized_xc_r, threshold)
+    
+    """ plt.figure()
+    plt.plot(y)
+    plt.plot([0, len(y)], [threshold,threshold], 'm')
+    print(rising_edges)"""
+    return rising_edges, falling_edges, xc_r
+
+def initial_seed_erfrecterf(t, y, noise):
+    """
+    Makes seeds for the first fit.
+    Calls seed_initial_offsets_peaks
+    
+    Args:
+        t (array): time corresponding to signal
+        y (array): signal
+        noise (float): noise level of y
+        
+    Returns:
+        initial_translational_offset (array): a list of the initial conditions for the horizontal offsets, mu
+        initial_amplitude (array): a list of the initial conditions for the amplitudes, A
+    """
+    rising_edges, falling_edges, xc_r = seed_initial_offsets_edges_smoothed(y, noise) 
+
+    #initial_translational_offset = t[peak_locns]
+    initial_amplitudes = []
+    for r,f in zip(rising_edges, falling_edges):
+        initial_amplitudes.append(y[int((f-r)//2+r)]-noise)
+    #print("initial amplitudes:", initial_amplitudes)
+    initial_amplitudes = np.asarray(initial_amplitudes)
+    
+
+    initial_mu0 = t[rising_edges]
+    initial_mu1 = t[falling_edges]
+        
+    return initial_mu0, initial_mu1, initial_amplitudes
+
+def seed_later_offsets_peaks_erfrecterf(y, noise_level):
+    """
+    Seed the starts and the edges of the erf-rect-erf features
+    
+    Args:
+        y (array): signal of interest
+        noise_level (float): the mean noise level of the signal. The threshold for finding the edges is based on this value
+        
+    Returns:
+        rising_edge (int): rising edges at which to seed erf-rect-erfs which corresponds to the location of the largest residual
+        falling_edge (int): falling edges at which to seed erf-rect-erfs which corresponds to the location of the largest residual
+    """
+    
+    threshold = noise_level
+    rising_edges, falling_edges = find_edges(y, threshold)
+    
+    # find the location with the lartest peak
+    peak_val = []
+    for r,f in zip(rising_edges, falling_edges):
+        peak_val.append(np.abs(y[(f-r)//2+r]))
+    if not peak_val: #if peak_val is empty
+        threshold = noise_level*.5
+        rising_edges, falling_edges = find_edges(y, threshold)
+        for r,f in zip(rising_edges, falling_edges):
+            peak_val.append(np.abs(y[(falling_edge-rising_edge)//2+rising_edge]))
+    if not peak_val:
+        return 
+    else:
+        biggest_residual_location = np.argmax(peak_val)
+    return rising_edges[biggest_residual_location], falling_edges[biggest_residual_location]
+
+def subsequent_seeding_erfrecterf(t, y, y_fit, popt, number_erfs, noise_threshold):
+    """
+    Make the seeds for fits after the first fit.
+    
+    Args:
+        t (array): times corresponding to y
+        y (array): burst
+        y_fit (array): fitted burst
+        popt (arary): output of previous curve fit
+        number_erfs (array): number of erf-rect-erf features in the fit
+        noise_avg (float): average value of the noise
+    
+    Returns:
+        new_translational_offset (array): initial guesses for the translational offsets of the erf-rect-erf features
+        new_amplitude (array): initial guesses for the amplitudes of the erf-rect-erf features
+    """
+    residual = np.abs(y-y_fit)
+    plt.figure()
+    plt.plot(residual)
+    plt.plot(y)
+    plt.plot(y_fit)
+    
+    # find spot with largest residual; record its amplitude
+    try:
+        rising_edge, falling_edge = seed_later_offsets_peaks_erfrecterf(residual, noise_threshold) 
+        print(rising_edge, falling_edge)
+
+        mu0_new = t[rising_edge]
+        mu1_new = t[falling_edge]
+
+        print('falling edge is ',falling_edge)
+        a_new = y[(falling_edge-rising_edge)//2+rising_edge]-noise_threshold
+        sigma0_new = 5 
+        sigma1_new = 5
+        
+        """
+        plt.figure(78)
+        plt.plot(y, label='data')
+        plt.plot(y_fit, label='fitted')
+        plt.plot(residual, label="|residual|")
+        plt.plot(peak_to_use, residual[peak_to_use], 'x')
+        """
+
+        # use the previously fitted peaks as initial conditions
+        fitted_a = popt[:number_erfs]
+        new_a = np.append(fitted_a, a_new)
+
+        fitted_mu0 = popt[number_erfs:2*number_erfs]
+        new_mu0 = np.append(fitted_mu0, mu0_new
+                           )
+        fitted_sigma0 = popt[2*number_erfs:3*number_erfs]
+        new_sigma0 = np.append(fitted_sigma0, sigma0_new)
+
+        fitted_mu1 = popt[3*number_erfs:4*number_erfs]
+        new_mu1 = np.append(fitted_mu1, mu1_new)
+
+        fitted_sigma1 = popt[4*number_erfs:5*number_erfs]
+        new_sigma1 = np.append(fitted_sigma1, sigma1_new)
+        
+    except Exception as e: 
+        print("Exception in subsequent_seeding", e)
+        return 
+    
+    return new_a, new_mu0, new_sigma0, new_mu1, new_sigma1
+
+
+def package_fit_data_erfrecterf(r2, rmse, max_error, max_error_normalized, 
+                     time_eff, duration, popt, fr, 
+                     number_erfrecterfs, 
+                     y, noise_avg, max_num_erfrecterfs, initial_number_erfrecterfs):
+    """
+    Save data from fits for use in later modules.
+    
+    Args:
+        r2 (float): percentage of variability of the burst that's been accounted for in the fit. (how well the regression predicts the data)
+        rmse (float): root mean square error between fit and signal
+        max_error (float): maximum absolute value of difference between y and y_fit
+        max_error_normalized (float): max_error/max(y)
+        time_eff (float): rect effective time of signal. time of a rectangle with same max height as the signal
+        duration (float): time of signal between indices set by lower and upper 10% of the integrated area of signal
+        popt (array): output of curve fit
+        fr (float): flow rate
+        number_erfrecterfs (int): number of erf-rect-erf features used to parameterize burst
+        y (array): burst
+        noise_avg (float): average noise value
+        max_num_erfrecterfs (int): maximum number of gaussians to be included in the fit
+        initial_number_erfrecterfs (int): number of Gaussians used in initial fit
+        
+    Returns:
+        data (array): contains many of the arguments and several other metrics, packaged for pickling for use in next module.
+    """
+    
+    try:
+        # fit parameters 
+        a = popt[0:number_erfrecterfs] # amplitude
+        mu0 = popt[number_erfrecterfs:2*number_erfrecterfs] # offset
+        sigma0 = popt[2*number_erfrecterfs:3*number_erfrecterfs] # width
+        mu1 = popt[3*number_erfrecterfs:4*number_erfrecterfs] # offset
+        sigma1 = popt[4*number_erfrecterfs:5*number_erfrecterfs] # width
+
+        # to save, we want distances relative to location of first erfrecterf
+        sorted_indices = np.argsort(mu0)
+        #print('length of mu:', len(mu), 'length of popt:', len(popt), 'number of gaussians', number_gaussians,'length of h:', len(h))
+
+        a_save, mu0_save, sigma0_save, mu1_save, sigma1_save = np.zeros(max_num_erfrecterfs), np.zeros(max_num_erfrecterfs), np.zeros(max_num_erfrecterfs), np.zeros(max_num_erfrecterfs), np.zeros(max_num_erfrecterfs)
+
+        a_save[:number_erfrecterfs] = a[sorted_indices]
+        mu0_save[:number_erfrecterfs] = mu0[sorted_indices]-mu0[sorted_indices[0]] # subtract smalles from all to get relative offsets
+        sigma0_save[:number_erfrecterfs] = sigma0[sorted_indices]
+        mu1_save[:number_erfrecterfs] = mu1[sorted_indices]-mu0[sorted_indices[0]] # subtract smalles from all to get relative offsets
+        sigma1_save[:number_erfrecterfs] = sigma1[sorted_indices]
+        vert_offset_save = popt[-1]
+
+        max_SNR = np.max(y)/noise_avg
+        avg_SNR = np.mean(y)/noise_avg
+        
+        data = np.concatenate([[fr],[rmse],
+                               [r2],[max_error],[max_error_normalized],[time_eff],[duration],
+                               a_save,mu0_save,sigma0_save,mu1_save, sigma1_save,[vert_offset_save],[t[1]-t[0]],
+                               [max_SNR], [avg_SNR], [int(initial_number_erfrecterfs)]])
+
+        return data
+    except Exception as e:
+        print('Exception:', e)
+        print("***\n***\nsomething went wrong in package_fit_data\n***\n***")
+        return
+    
+def fitting_function_erfrecterf(selxn, t, y, noise_avg, noise_thresh, fr, max_num_erfrecterfs=4):
+    """
+    Performs erf-rect-erf fits. Initializes first fit based on number of edges in smoothed copy of burst. The residual of this fit is compared to the noise threshold. Until the absolute value of the residual is smaller than the noise threshold or until more than max_num_erfrecterfs features are needed to parameterize the fit, subsequent fits place new Gaussians at locations which have large residuals. A great deal of care is taken in this function to standardize the weighting and initial conditions of the fits since the erf-rect-erf features inherently are not orthogonal. The goal is to produce fits with Gaussians which appear physical (aren't extremely tall and narrow or short and wide). The fits may not converge, or more features than max_num_erfrecterfs may be required to fit the function. In such cases, the fitting function passes the burst without returning a fit.
+    
+    Args:
+        selxn (int): burst number being fitted
+        t (array): times corresponding to y
+        y (array): burst being fitted 
+        noise_avg (float): average value of the noise
+        noise_thresh (float): average value of the noise + standard deviation of noise
+        fr (float): actual flow rate underlying simulation 
+        max_num_erfrecterfs (int): maximum number of erf-rect-erf features used to fit the burst
+        
+    Returns:
+        data (array): contains many of the arguments and several other metrics, packaged for pickling for use in next module.
+    """
+    
+    # check that there are enough points above the noise threshold to actually do a fit
+    if np.shape(np.argwhere(y>noise_avg + 3*(noise_thresh-noise_avg)))[0]<12:
+        print("not enough of the burst has an intensity greater than 2x the noise threshold ")
+        return
+    
+    # for initial fit, use peak finding to determine the number, 
+    # location, and initaial amplitudes of the Gaussians. 
+    initial_mu0, initial_mu1, initial_amplitude = initial_seed_erfrecterf(t, y, noise_thresh)
+    number_erfrecterfs = len(initial_mu0)
+
+    
+    if number_erfrecterfs > max_num_erfrecterfs:
+        print("too many peaks were found initially: number_erfrecterfs > max_num_erfrecterfs.")
+        return
+    
+    #calculate rect effective time to be used in the initial standard dev. condition.  
+    delta_t = t[1]-t[0]
+    time_eff = calculate_effective_length(y, noise_avg, delta_t) #instead of fitted_vert_offset, use noise_avg (we haven't yet fitted any fitted_vert_offset)
+    #print("rect effective time: ", time_eff)
+    initial_sigma0 = [time_eff/5]*number_erfrecterfs
+    initial_sigma1 = [time_eff/5]*number_erfrecterfs
+    
+    # initialize vertical offset
+    initial_vertical_offset = noise_avg + np.mean( [np.mean(y[:len(y)//5]), np.mean(y[4*len(y)//5:])] ) 
+
+    
+    p0 = initial_guess(initial_amplitude,
+                       initial_mu0,
+                       initial_sigma0,
+                       initial_mu1,
+                       initial_sigma1,
+                       initial_vertical_offset)
+    
+    # initialize curve fitting bounds
+    amplitude_bounds = (noise_avg,np.max(y)-noise_avg*.25) 
+    mu_bounds = (0,np.max(t)) ### maybe make these somewhat closer to the seeds
+    sigma_bounds = (np.max(t)/150,np.max(t)/2) 
+    vertical_offset_bounds = (.95*np.min( [np.min(y[:len(y)//5]), np.min(y[4*len(y)//5:])]), noise_avg+1.25*np.max( [np.max(y[:len(y)//5]), np.max(y[4*len(y)//5:])]) )
+    bounds = bound_maker_erfrecterf(amplitude_bounds,mu_bounds,sigma_bounds,vertical_offset_bounds,number_erfrecterfs)
+    initial_number_erfrecterfs = len(initial_sigma0)
+    
+    # make weights for fit
+    sigma = make_weights(y, g_length=50)
+
+    
+    # limit the max number of function evaluations
+    max_nfev = int(30*len(t))
+    
+    # try first fit
+    try: 
+        popt,pcov = curve_fit(lambda t,*p0:fit_wrapper_erfrecterf(t,*p0),t,y,p0=p0,bounds=bounds,x_scale=np.max(t),sigma=sigma,max_nfev=max_nfev,absolute_sigma=False)
+    except Exception as e:
+        print('p0:', p0)
+        print('bounds', bounds)
+        print('problem in first fit:', e)
+        return
+    ##### function will only reach this location if initial fit converged.
+    
+    # calculate residual 
+    y_fit = fit_wrapper_erfrecterf(t,*popt)
+    residual = y-y_fit
+    
+
+    
+    """plt.figure()
+    plt.plot(t, y, label="data")
+    plt.plot(t, y_fit, label="1st fit")
+    plt.plot(t, np.abs(residual)/sigma**2, label="|residual|/sigma**2")
+    #plt.plot([0, np.max(t)], [noise_thresh, noise_thresh], 'k--', label="threshold")
+    plt.plot([0, np.max(t)], [750, 750], 'k--', label="threshold")
+    #plt.plot([0, np.max(t)], [noise_avg, noise_avg], 'k--', label="mean noise")
+
+    plt.legend()"""
+    
+    """
+    print(noise_thresh)
+    print(np.any(np.abs(residual)>noise_thresh))
+    print(number_gaussians<max_num_gaussians)
+    """
+    
+    
+    # compare residual to noise threshold to determine whether or not 
+    # another Gaussian should be added. Only add another Gaussian if 
+    # there are no more than max_num_gaussians Gaussians already. 
+    std_dev_residual_previous = 9999999#noise_thresh-noise_avg#np.std(y)
+    std_dev_residual_new = np.std(residual)
+
+    fitnum = 1
+    noisethresh_to_use = .05
+    while (np.any(np.abs(residual)/sigma**2>noisethresh_to_use)) & (number_erfrecterfs<max_num_erfrecterfs) & (std_dev_residual_new<std_dev_residual_previous*.8):
+        plt.figure()
+        plt.plot(y, label='y')
+        plt.plot(y_fit, label='fitted')
+        plt.plot((y-y_fit)/sigma**2, label='scaled residual')
+        plt.plot([0,len(y_fit)], [noisethresh_to_use, noisethresh_to_use], label='threshold')
+        plt.legend()
+        print('initial fit insufficient')
+        # try subsequent fit
+        # add in another gausian 
+        fitnum += 1
+        print('fit number', fitnum)
+        try:
+            new_a, new_mu0, new_sigma0, new_mu1, new_sigma1 = subsequent_seeding_erfrecterf(t, y, y_fit, popt, number_erfrecterfs, noise_thresh)
+
+
+            initial_vertical_offset = popt[-1]
+
+            p0 = initial_guess(new_a,
+                               new_mu0,
+                               new_sigma0,
+                               new_mu1,
+                               new_sigma1,
+                               initial_vertical_offset)
+            sigma0_bounds = (np.max(t)/150,np.max(t)/2) 
+            sigma1_bounds = (np.max(t)/150,np.max(t)/2) 
+            # initialize curve fitting bounds
+            num_new_erfrecterfs = 1
+            bounds = bound_maker_subsequent_erfrecterf(t, y, y_fit, popt, num_new_erfrecterfs, amplitude_bounds, 
+                                            sigma0_bounds, sigma1_bounds, vertical_offset_bounds, new_mu0, new_mu1)
+
+            # try curve fit again
+        except Exception as e:
+            print(e)
+            print("$$$$$$$$$$$$$")
+            return
+        try:
+            popt,pcov = curve_fit(lambda t,*p0:fit_wrapper_erfrecterf(t,*p0),t,y,p0=p0,bounds=bounds,x_scale=np.max(t),sigma=sigma,max_nfev=max_nfev,absolute_sigma=False)
+        except: # if first fit fails to converge, end fitting
+            print(selxn, "one of the subsequent fits failed to converge")
+            return 
+        y_fit = fit_wrapper_erfrecterf(t,*popt)
+        residual = y-y_fit
+        number_erfrecterfs += 1
+        
+       
+        print('num erfs',number_erfrecterfs)
+        
+        std_dev_residual_previous = std_dev_residual_new
+        std_dev_residual_new = np.std(residual)
+        #print('std dev of residual is: ', std_dev_residual_new)
+    
+    if (np.any(np.abs(residual/sigma**2)<noisethresh_to_use) & (number_erfrecterfs<=max_num_erfrecterfs)):
+        print(selxn, "WORKED")
+
+        # package data for ML input.
+        r2, rmse, max_error, max_error_normalized, duration = eval_fit(y, y_fit, t, popt, delta_t)
+        data = package_fit_data_erfrecterf(r2, rmse, max_error, max_error_normalized, 
+                                time_eff, duration, popt, fr, 
+                                number_erfrecterfs, y, 
+                                noise_avg, max_num_erfrecterfs, initial_number_erfrecterfs)
+
+        """ plt.figure()
+        plt.plot(t, y, label='signal')
+        plt.plot(t, y_fit, label="fit")
+        #plt.plot(t, np.abs(residual), label="|new residual|")
+        plt.legend()"""
+        #print(number_erfrecterfs)
+        return data
+    else:
+        print(selxn, "max number of erfrecterfs reached, but fit not within noise threshold")
+        return
+    
+    return
